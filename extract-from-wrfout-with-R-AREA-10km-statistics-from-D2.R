@@ -2,34 +2,33 @@
 # Author: Gerson L Camillo
 
 # What this do: extract PRP variable from NetCDF file that was generated
-#      by WRF. Basic parameter: grid point
+#      by WRF and then:
+#   - calculate difference between forecast and observed values
+#   - calculate some statistics (BIAS, RMSE)
+#   - save the results in CSV files
+# Basic parameter: grid point
 
 # Rev.:
-#  v.1 20240321: initial: 25 grid points -> D2 -> 10km (area)
+#  v.1   20240321: initial: 25 grid points -> D2 -> 10km (area)
+#  v.2   20240408: all stations will be calculated
+#  v.2.5 20240411: all functionality working
 
-# ./extract-from-wrfout-with-R-AREA-10km-attime-from-D2.R  
+# ./extract-ALL-stations-from-wrfout-with-R-AREA-10km-from-D2.R  
 #        wrfout_d02_2020-08-14_00.nc
-#        case-01-MP-1-and-PBL-99-JO-attime
-#        120 110
-#        CH
+#        case-01-MP-1-and-PBL-99-ALL
+#        ALL
 #        24
 #        AREA
-#        attime
 
 
 
 # Arguments
 # args[1]=wrfout_d02_2020-08-14_00.nc    NetCDF file from WRF output
 # args[2]=data-prp-pbl_MRF-mp_KESS-CH-attime        Name of output file (CSV data)
-# args[3]=120           Central coordinate of grid point: x=i
-# args[4]=110           Central coordinate of grid point: y=j
-# args[5]=JO            Code name for meteorological station (name or ALL)
-# args[6]=24            Time of forecast (24,48,72)
-# args[7]=POINT|AREA    This script will print only AREA for now
-# args[8]=attime        Compare OBS data time with WRF forecast at:
-#                            attime: same time stamp;
-#                            atfw:  forecast time 2hours in future
-#                            atbw:  forecast time 2hours in past
+# args[3]=ALL            ALL for all meteorological stations (name or ALL)
+# args[4]=24            Time of forecast (24,48,72)
+# args[5]=POINT|AREA    This script will print only AREA for now
+
 
 # Observations:
 # - The argument for station can be: a) only one, or b) the code 'ALL'
@@ -41,33 +40,56 @@
 # CR: Curitibanos
 # CA: Caçador
 
-# 1. CH: Chapecó  -27,0853111  -52,6357111   679
+# 1. CH: Chapecó  -27.0853111  -52.6357111   679
 #    WRF Grid points: -27.0789 j=236  -52.629 x=155
-# 2. XA: Xanxerê -26,938666  -52,39809   878,74
+# 2. XA: Xanxerê -26.938666  -52.39809   878,74
 #    WRF Grid points: -26.9241 j=243   -50.3976 i=167
-# 3. JO: Joaçaba -27,16916666 -51,55888888  767,63
+# 3. JO: Joaçaba -27.16916666 -51.55888888  767,63
 #    WRF Grid points: -27.1572 j=231   -51.5555 i=209
-# 4. CN: Campos Novos -27,3886111 -51,21583333 963
+# 4. CN: Campos Novos -27.3886111 -51.21583333 963
 #    WRF Grid points: -27.3935 j=218   -51.214  i=226
-# 5. CT: Curitibanos  -27,288624 -50,604283 978,1
+# 5. CT: Curitibanos  -27.288624 -50.604283 978,1
 #    WRF Grid points: -27.2348 j=227   -50.5938 i=257
-# 6. CA: Caçador   -26,819156  -50,98552   944,26m
+# 6. CA: Caçador   -26.819156  -50.98552   944,26m
 #    WRF Grid points: -26.811  j=250    -50.992  x=238
 
-# For printing data e information
-# DEBUG = TRUE
-DEBUG = FALSE
+
+# Times: ['2020-08-14T00:00:00.000000000' '2020-08-14T01:00:00.000000000'
+# '2020-08-14T02:00:00.000000000' '2020-08-14T03:00:00.000000000'
+# '2020-08-14T04:00:00.000000000' '2020-08-14T05:00:00.000000000'
+# '2020-08-14T06:00:00.000000000' '2020-08-14T07:00:00.000000000'
+# '2020-08-14T08:00:00.000000000' '2020-08-14T09:00:00.000000000'
+# '2020-08-14T10:00:00.000000000' '2020-08-14T11:00:00.000000000'
+# '2020-08-14T12:00:00.000000000' '2020-08-14T13:00:00.000000000'
+# '2020-08-14T14:00:00.000000000' '2020-08-14T15:00:00.000000000'
+# '2020-08-14T16:00:00.000000000' '2020-08-14T17:00:00.000000000'
+# '2020-08-14T18:00:00.000000000' '2020-08-14T19:00:00.000000000'
+# '2020-08-14T20:00:00.000000000' '2020-08-14T21:00:00.000000000'
+# '2020-08-14T22:00:00.000000000' '2020-08-14T23:00:00.000000000'
+# '2020-08-15T00:00:00.000000000']  Size: 25
+
 
 library(ncdf4)
+library(Metrics)
+library(CFtime)  # Provide timestamp in POSIX formats
+
+# For printing data e information
+DEBUG = TRUE
+#DEBUG = FALSE
+
+###########  Some references
+# Statistics from Package Metrics: generate unique values
+# https://cran.r-project.org/web/packages/Metrics/Metrics.pdf
+# ae (absolute error): output a vector with absolute differences
+# mae, bias, rmse: summarization stats
 
 if (DEBUG){
   version
   sessionInfo()
 }
 
-
 args <- commandArgs(trailingOnly = TRUE)
-print(paste("args[1]:", args[1], "args[2]:", args[2],"args[3]:", args[3], "args[4]:", args[4], "args[5]:", args[5], "args[6]:", args[6], "args[7]:", args[7], "args[8]:", args[8]))
+print(paste("args[1]:", args[1], "args[2]:", args[2],"args[3]:", args[3], "args[4]:", args[4], "args[5]:", args[5]))
 netcdf.file <- args[1]
 extract_point_or_area <- "AREA"
 
@@ -82,102 +104,65 @@ rain <- ncvar_get(wrfout, varid = 'RAINNC')
 # A respeito da variável, consultar obs ao final
 # prp_variable <- c("rainnc")
 
-i <- as.numeric(args[3])
-j <- as.numeric(args[4])
-# j=y=279  i=x=106
-# i=120
-# j=110
+# Default number of stations
+stations_number = 1
 
-station <- args[5]
+# There are 6 stations
+if (args[3] == 'ALL') {
+  stations_number = 6
+}
+
+# Points data
+st_coord_names <- c('CH', 'XA', 'JO', 'CN', 'CT', 'CA')
+st_coord_i <- c(155, 167, 209, 226, 257, 238)
+st_coord_j <- c(236, 243, 231, 218, 227, 250)
 
 
-# forecast_time <- as.numeric(args[5])+1
-
-forecast_time <- as.numeric(args[6])+1
+forecast_time <- as.numeric(args[4])+1
+t_start=1
 # forecast_time=25  # Forecast Time: 24h
 # forecast_time=49  # Forecast Time: 48h
 # forecast_time=73  # Forecast Time: 72h
 
-if (forecast_time == 25) {
-    t_start=1
-} else if (forecast_time == 49) {
-    t_start=25
-} else {
-    t_start=49
-}
-if (forecast_time == 9) {
-    t_start=1
-}
 
+# TODO: will not be used
 # To compute diferences between (F)orecast values and (O)bservation values
 # args[8]=    Compare OBS data time with WRF forecast at:
 #   attime: same time stamp;
 #   atfw:  forecast time 2hours in future
 #   atbw:  forecast time 2hours in past
-f_time <- args[8]
+# f_time <- args[8]
 
 
 
 ###  Observation data (PRP - precipitation) for all stations
 #     - the 0000 UTC data will be excluded
-#     - time range: 0100 UTC to 2400 UTC 
-st_CH_prp <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 5.8, 0.6, 1.4, 0.8, 0, 0)
-st_XA_prp <- c(0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.6, 8.4, 2.2, 0.6, 0, 0, 0)
+#     - time range: from 2020/08/14;0100 UTC  to  2020/08/15;0000 UTC
+st_CH_prp <- c(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 5.8, 0.6, 1.4, 0.8, 0.0, 0.0, 0.2)
+st_XA_prp <- c(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.6, 8.4, 2.2, 0.6, 0.0, 0.0, 0.0, 0.0)
 
-st_JO_prp <- c(0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, NA, 0, 0, 0, 0, 0, 0, 0, 24.6, 2.4, 0.2, 3, 0.6)
-st_CN_prp <- c(0, 0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0, 0, 0, 2.6, 10, 4.8, 1.6, 21.4)
+#st_JO_prp <- c(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, NA, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 24.6, 2.4, 0.2, 3, 0.6, 0.0)
+st_JO_prp <- c(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 24.6, 2.4, 0.2, 3, 0.6, 0.0)
+st_CN_prp <- c(0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.6, 10, 4.8, 1.6, 21.4, 0.2)
 
-st_CA_prp <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0.4, 3.8, 0, 0, 0)
-st_CT_prp <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 19.4, 0.4, 0.2)
+st_CA_prp <- c(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.4, 3.8, 0.0, 0.0, 0.0, 0.0)
+st_CT_prp <- c(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 19.4, 0.4, 0.2, 6.4)
 
-
-prp_obs_from_st <- switch(station,
-                 "CH"=st_CH_prp, 
-                 "XA"=st_XA_prp,
-                 "JO"=st_JO_prp,
-                 "CN"=st_CN_prp,
-                 "CA"=st_CA_prp,
-                 "CT"=st_CT_prp
-)
+#st_ALL_prp <- rbind(st_CH_prp, st_XA_prp, st_JO_prp, st_CN_prp, st_CA_prp, st_CT_prp)
+st_ALL_prp <- c(st_CH_prp, st_XA_prp, st_JO_prp, st_CN_prp, st_CA_prp, st_CT_prp)
 
 if (DEBUG){
   print(paste(" --- Parameters ---"))
   print(paste("WRF output filename (netcdf.file)", netcdf.file))
   print(paste("Type of summarization: ", extract_point_or_area))
-  print(paste("Coordinate i=x: ", i))
-  print(paste("Coordinate j=y: ", j))
-  print(paste("Name of INMET OBS station: ", station))
+  # This info is not more passed by parameter
+  #print(paste("Coordinate i=x: ", i))
+  #print(paste("Coordinate j=y: ", j))
+  #print(paste("Name of INMET OBS station: ", station))
   print(paste("Forecast time (forecast_time):", forecast_time))
   print(paste("Forecast time (t_start):", t_start))
-  print(paste("PRP OBS: ", prp_obs_from_st))
+
 }
-
-
-# Passos no tempo: 1(0h), 2(3h), 3(6h), 4(9h), 5(12h), 6(15h), 7(18h), 8(21h), 9(24h)
-# 9: [1]   0 180 360 540 720 900
-
-# pa pb pc pd pe
-# pf pg ph pi pj
-# pk pl pm pn po
-# pp pq pr ps pt
-# pu pv px pz py
-
-# pa: i-2,j+2
-#r_pa <- rain[i-2,j+2,t+1]
-
-# pb: i-1,j+2
-#r_pb <- rain[i-1,j+2,t+1]
-
-# pc: i,j+2
-#r_pc <- rain[i,j+2,t+1]
-
-# pd: i+1,j+2
-#r_pd <- rain[i+1,j+2,t+1]
-
-# The 24-hr precipitation for the period 24-28hr simulation should be:
-# [rainc +rainnc (at 48hr)] - [rainc+rainnc (at 24hr)]
-# pe: i+2,j+2
-# r_pe <- rain[i+2,j+2,t+1]
 
 
 # =======================================================
@@ -196,6 +181,28 @@ ntime <- dim(time)
 head(time)
 tunits <- ncatt_get(wrfout, "XTIME", "units")
 tunits[["value"]]
+
+
+#> time <- ncvar_get(nc, "XTIME")
+#> time
+#[1]    0   60  120  180  240  300  360  420  480  540  600  660  720  780  840  900  960 1020
+#[19] 1080 1140 1200 1260 1320 1380 1440
+#> time[1]
+#[1] 0
+#> time[2]
+#[1] 60
+#> time[25]
+#[1] 1440
+#> ncatt_get(nc, "XTIME", "units")
+#$hasatt
+#[1] TRUE
+#$value
+#[1] "minutes since 2020-08-14 00:00:00"
+
+# Timestamps in POSIX formats
+cf <- CFtime(tunits$value, calendar="proleptic_gregorian", time) 
+timestamps <- CFtimestamp(cf)
+hours <- c(01,02,03,04,05,06,07,08,09,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24)
 
 # =========== Observações
 #  RAINC:description = "ACCUMULATED TOTAL CUMULUS PRECIPITATION" ;
@@ -216,6 +223,7 @@ runits <- ncatt_get(wrfout, "RAINC", "units")
 runits[["value"]]
 dim(rainc)
 nc_close(wrfout)
+
 
 # For missing values in NetCDF files:
 #  “fill values” (_FillValue) or missing values (missing_value)
@@ -253,234 +261,361 @@ dim(lat)
 # The matrix only contains DATA from WRF Forecast
 # The index of the array (1-24) will be associated with forecast HOUR
 prp_avg_area <- 0.0
-# prp_mean_area <- matrix(1:48, nrow = 24, ncol = 2)
-# colnames(prp_mean_area) <- c("hour","prp_mean_area")
 prp_mean_area <- matrix(1:24, nrow = 24, ncol = 1)
+#colnames(prp_mean_area) <- c("hour","prp_obs","prp_mean_area")
 colnames(prp_mean_area) <- c("prp_mean_area")
 
-prp_avg_area_time <- 0.0
-# prp_mean_area_time <- matrix(1:48, nrow = 24, ncol = 2)
-# colnames(prp_mean_area) <- c("hour","prp_mean_area_time")
-prp_mean_area_time <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(prp_mean_area_time) <- c("prp_mean_area_time")
+# prp_mean_for_all_points <- matrix(1:144, nrow = 144, ncol = 1)
+prp_mean_for_all_points <- c()
 
+# Copy the Mean Error (bias) from all stations and generate a final plot
+ME_for_st_CH <- matrix(1:24, nrow = 24, ncol = 1)
+ME_for_st_XA <- matrix(1:24, nrow = 24, ncol = 1)
+ME_for_st_JO <- matrix(1:24, nrow = 24, ncol = 1)
+ME_for_st_CN <- matrix(1:24, nrow = 24, ncol = 1)
+ME_for_st_CA <- matrix(1:24, nrow = 24, ncol = 1)
+ME_for_st_CT <- matrix(1:24, nrow = 24, ncol = 1)
 
+# To store the actual diffences for a final plot containing all stations
+DIF_for_st_CH <- matrix(1:24, nrow = 24, ncol = 1)
+DIF_for_st_XA <- matrix(1:24, nrow = 24, ncol = 1)
+DIF_for_st_JO <- matrix(1:24, nrow = 24, ncol = 1)
+DIF_for_st_CN <- matrix(1:24, nrow = 24, ncol = 1)
+DIF_for_st_CA <- matrix(1:24, nrow = 24, ncol = 1)
+DIF_for_st_CT <- matrix(1:24, nrow = 24, ncol = 1)
 
 if (DEBUG){
-  print(paste(" --- Data extracted ---")) 
+  print(paste(" -------- Extracting Data and Collecting Statistics -------")) 
 }
 
-#  Compare OBS data time with WRF forecast at:
-#   attime: same time stamp;
-for (t in t_start:forecast_time-1){
+# st_coord_names <- c('CH', 'XA', 'JO', 'CN', 'CT', 'CA')
+# st_coord_i <- c(155, 167, 209, 226, 257, 238)
+# st_coord_j <- c(236, 243, 231, 218, 227, 250)
+
+for (s in 1:stations_number) {
+  st_name <- st_coord_names[s]
+  i <- st_coord_i[s]
+  j <- st_coord_j[s]
+  if (DEBUG){
+    print(paste("Coordinate i=x: ", i))
+    print(paste("Coordinate j=y: ", j))
+    print(paste("Name of INMET OBS station: ", st_name))
+  }
   
-  # pa: i-2,j+2
-  r_pa <- rainnc[i-2,j+2,t+1]+rainc[i-2,j+2,t+1]-(rainnc[i-2,j+2,t]+rainc[i-2,j+2,t])
-  # pb: i-1,j+2
-  r_pb <- rainnc[i-1,j+2,t+1]+rainc[i-1,j+2,t+1]-(rainnc[i-1,j+2,t]+rainc[i-1,j+2,t])
-  # pc: i,j+2
-  r_pc <- rainnc[i,j+2,t+1]+rainc[i,j+2,t+1]-(rainnc[i,j+2,t]+rainc[i,j+2,t])
-  # pd: i+1,j+2
-  r_pd <- rainnc[i+1,j+2,t+1]+rainc[i+1,j+2,t+1]-(rainnc[i+1,j+2,t]+rainc[i+1,j+2,t])
-  # pe: i+2,j+2
-  r_pe <- rainnc[i+2,j+2,t+1]+rainc[i+2,j+2,t+1]-(rainnc[i+2,j+2,t]+rainc[i+2,j+2,t])
+  #  Compare OBS data time with WRF forecast at:
+  #   t[1]  timestamps[1]  [1] "2020-08-14T00:00:00"
+  #   In t[1] there is NO prp accumulation
+  #   t[25] timestamps[25] [1] "2020-08-15T00:00:00"
+  # There are no prp accumulation before 2020-08-14T00:00:00 t: 1
+  #  Then: t -> 2 to 25
+  #    prp_mean_area[t-1] = prp_from_netcdf[t]
+
+  # prp_mean_area[t] <- prp_avg_area
+  #prp_mean_area[t] <- 0
+  #  if (DEBUG){
+  #  print(paste("Time:", timestamps[t], "t:", t, "  ", "PRP area average:", prp_avg_area, " prp_mean_area[t]:", prp_mean_area[t]))
+  #}
   
-  # ----  pf pg ph pi pj
-  # pf: i-2,j+1
-  r_pf <- rainnc[i-2,j+1,t+1]+rainc[i-2,j+1,t+1]-(rainnc[i-2,j+1,t]+rainc[i-2,j+1,t])
-  # pg: i-1,j+1
-  r_pg <- rainnc[i-1,j+1,t+1]+rainc[i-1,j+1,t+1]-(rainnc[i-1,j+1,t]+rainc[i-1,j+1,t])
-  # ph: i,j+1
-  r_ph <- rainnc[i,j+1,t+1]+rainc[i,j+1,t+1]-(rainnc[i,j+1,t]+rainc[i,j+1,t])
-  # pi: i+1,j+1
-  r_pi <- rainnc[i+1,j+1,t+1]+rainc[i+1,j+1,t+1]-(rainnc[i+1,j+1,t]+rainc[i+1,j+1,t])
-  # pj: i+2,j+1
-  r_pj <- rainnc[i+2,j+1,t+1]+rainc[i+2,j+1,t+1]-(rainnc[i+2,j+1,t]+rainc[i+2,j+1,t])
   
-  # ----  pk pl pm pn po
-  # pk: i-2,j
-  r_pk <- rainnc[i-2,j,t+1]+rainc[i-2,j,t+1]-(rainnc[i-2,j,t]+rainc[i-2,j,t])
-  # pl: i-1,j
-  r_pl <- rainnc[i-1,j,t+1]+rainc[i-1,j,t+1]-(rainnc[i-1,j,t]+rainc[i-1,j,t])
-  # pm: i,j
-  r_pm <- rainnc[i,j,t+1]+rainc[i,j,t+1]-(rainnc[i,j,t]+rainc[i,j,t])
-  # pn: i+1,j
-  r_pn <- rainnc[i+1,j,t+1]+rainc[i+1,j,t+1]-(rainnc[i+1,j,t]+rainc[i+1,j,t])
-  # po: i+2,j
-  r_po <- rainnc[i+2,j,t+1]+rainc[i+2,j,t+1]-(rainnc[i+2,j,t]+rainc[i+2,j,t])
+  #  Compare OBS data time with WRF forecast at:
+  #   t[2]  timestamps[2]  [1] "2020-08-14T01:00:00"
+  #   t[25] timestamps[25] [1] "2020-08-15T00:00:00"
+  for (t in (t_start+1):forecast_time){
+    
+    # pa: i-2,j+2
+    r_pa <- rainnc[i-2,j+2,t]+rainc[i-2,j+2,t]-(rainnc[i-2,j+2,t-1]+rainc[i-2,j+2,t-1])
+    # pb: i-1,j+2
+    r_pb <- rainnc[i-1,j+2,t]+rainc[i-1,j+2,t]-(rainnc[i-1,j+2,t-1]+rainc[i-1,j+2,t-1])
+    # pc: i,j+2
+    r_pc <- rainnc[i,j+2,t]+rainc[i,j+2,t]-(rainnc[i,j+2,t-1]+rainc[i,j+2,t-1])
+    # pd: i+1,j+2
+    r_pd <- rainnc[i+1,j+2,t]+rainc[i+1,j+2,t]-(rainnc[i+1,j+2,t-1]+rainc[i+1,j+2,t-1])
+    # pe: i+2,j+2
+    r_pe <- rainnc[i+2,j+2,t]+rainc[i+2,j+2,t]-(rainnc[i+2,j+2,t-1]+rainc[i+2,j+2,t-1])
+    
+    # ----  pf pg ph pi pj
+    # pf: i-2,j+1
+    r_pf <- rainnc[i-2,j+1,t]+rainc[i-2,j+1,t]-(rainnc[i-2,j+1,t-1]+rainc[i-2,j+1,t-1])
+    # pg: i-1,j+1
+    r_pg <- rainnc[i-1,j+1,t]+rainc[i-1,j+1,t]-(rainnc[i-1,j+1,t-1]+rainc[i-1,j+1,t-1])
+    # ph: i,j+1
+    r_ph <- rainnc[i,j+1,t]+rainc[i,j+1,t]-(rainnc[i,j+1,t-1]+rainc[i,j+1,t-1])
+    # pi: i+1,j+1
+    r_pi <- rainnc[i+1,j+1,t]+rainc[i+1,j+1,t]-(rainnc[i+1,j+1,t-1]+rainc[i+1,j+1,t-1])
+    # pj: i+2,j+1
+    r_pj <- rainnc[i+2,j+1,t]+rainc[i+2,j+1,t]-(rainnc[i+2,j+1,t-1]+rainc[i+2,j+1,t-1])
+    
+    # ----  pk pl pm pn po
+    # pk: i-2,j
+    r_pk <- rainnc[i-2,j,t]+rainc[i-2,j,t]-(rainnc[i-2,j,t-1]+rainc[i-2,j,t-1])
+    # pl: i-1,j
+    r_pl <- rainnc[i-1,j,t]+rainc[i-1,j,t]-(rainnc[i-1,j,t-1]+rainc[i-1,j,t-1])
+    # pm: i,j
+    r_pm <- rainnc[i,j,t]+rainc[i,j,t]-(rainnc[i,j,t-1]+rainc[i,j,t-1])
+    # pn: i+1,j
+    r_pn <- rainnc[i+1,j,t]+rainc[i+1,j,t]-(rainnc[i+1,j,t-1]+rainc[i+1,j,t-1])
+    # po: i+2,j
+    r_po <- rainnc[i+2,j,t]+rainc[i+2,j,t]-(rainnc[i+2,j,t-1]+rainc[i+2,j,t-1])
+    
+    # ----  pp pq pr ps pt
+    # pp: i-2,j-1
+    r_pp <- rainnc[i-2,j-1,t]+rainc[i-2,j-1,t]-(rainnc[i-2,j-1,t-1]+rainc[i-2,j-1,t-1])
+    # pq: i-1,j-1
+    r_pq <- rainnc[i-1,j-1,t]+rainc[i-1,j-1,t]-(rainnc[i-1,j-1,t-1]+rainc[i-1,j-1,t-1])
+    # pr: i,j-1
+    r_pr <- rainnc[i,j-1,t]+rainc[i,j-1,t]-(rainnc[i,j-1,t-1]+rainc[i,j-1,t-1])
+    # ps: i+1,j-1
+    r_ps <- rainnc[i+1,j-1,t]+rainc[i+1,j-1,t]-(rainnc[i+1,j-1,t-1]+rainc[i+1,j-1,t-1])
+    # pt: i+2,j-1
+    r_pt <- rainnc[i+2,j-1,t]+rainc[i+2,j-1,t]-(rainnc[i+2,j-1,t-1]+rainc[i+2,j-1,t-1])
+    
+    # ----  pu pv px pz py
+    # pu: i-2,j-1
+    r_pu <- rainnc[i-2,j-2,t]+rainc[i-2,j-2,t]-(rainnc[i-2,j-2,t-1]+rainc[i-2,j-2,t-1])
+    # pv: i-1,j-1
+    r_pv <- rainnc[i-1,j-2,t]+rainc[i-1,j-2,t]-(rainnc[i-1,j-2,t-1]+rainc[i-1,j-2,t-1])
+    # px: i,j-1
+    r_px <- rainnc[i,j-2,t]+rainc[i,j-2,t]-(rainnc[i,j-2,t-1]+rainc[i,j-2,t-1])
+    # pz: i+1,j-1
+    r_pz <- rainnc[i+1,j-2,t]+rainc[i+1,j-2,t]-(rainnc[i+1,j-2,t-1]+rainc[i+1,j-2,t-1])
+    # py: i+2,j-1
+    r_py <- rainnc[i+2,j-2,t]+rainc[i+2,j-2,t]-(rainnc[i+2,j-2,t-1]+rainc[i+2,j-2,t-1])
+    
+    
+    result <- c(r_pa, r_pb, r_pc, r_pd, r_pe, r_pf, r_pg, r_ph, r_pi, r_pj, r_pk, r_pl, r_pm, r_pn, r_po, r_pp, r_pq, r_pr, r_ps, r_pt, r_pu, r_pv, r_px, r_pz, r_py)
+    # Remove missing values from calculus: na.rm=TRUE. If there were a missing value,
+    #    then the function will end with a error.
+    prp_avg_area <- mean(result, na.rm=TRUE)
+    prp_mean_area[t-1] <- prp_avg_area
+    
+    if (DEBUG){
+      print(result)
+      print(paste("Time: ", timestamps[t], "t:", t, "  ", "prp_mean_area[t-1]:", prp_mean_area[t-1]))
+    }
+  }
+
+  # ===== Concatenate all stations in one vector for statistics about all the area
+  # Need convert MATRIX (prp_mean_area) to VECTOR: as.vector(), c()
+  if (s == 1){
+    prp_mean_for_all_points <- append(prp_mean_for_all_points, as.vector(prp_mean_area), 1)
+  } else{
+    prp_mean_for_all_points <-append(prp_mean_for_all_points, c(prp_mean_area), ((s-1)*24)+1)
+  }
+  if (DEBUG){
+    print(paste("Station:", st_name, "prp_mean_for_all_points: ", prp_mean_for_all_points))
+  }
   
-  # ----  pp pq pr ps pt
-  # pp: i-2,j-1
-  r_pp <- rainnc[i-2,j-1,t+1]+rainc[i-2,j-1,t+1]-(rainnc[i-2,j-1,t]+rainc[i-2,j-1,t])
-  # pq: i-1,j-1
-  r_pq <- rainnc[i-1,j-1,t+1]+rainc[i-1,j-1,t+1]-(rainnc[i-1,j-1,t]+rainc[i-1,j-1,t])
-  # pr: i,j-1
-  r_pr <- rainnc[i,j-1,t+1]+rainc[i,j-1,t+1]-(rainnc[i,j-1,t]+rainc[i,j-1,t])
-  # ps: i+1,j-1
-  r_ps <- rainnc[i+1,j-1,t+1]+rainc[i+1,j-1,t+1]-(rainnc[i+1,j-1,t]+rainc[i+1,j-1,t])
-  # pt: i+2,j-1
-  r_pt <- rainnc[i+2,j-1,t+1]+rainc[i+2,j-1,t+1]-(rainnc[i+2,j-1,t]+rainc[i+2,j-1,t])
+  if (st_name == 'CH') {
+    prp_obs_from_st <- as.vector(st_CH_prp)
+  } else if (st_name == 'XA') {
+    prp_obs_from_st <- st_XA_prp
+  } else if (st_name == 'JO') {
+    prp_obs_from_st <- st_JO_prp
+  } else if (st_name == 'CN') {
+    prp_obs_from_st <- st_CN_prp
+  }else if (st_name == 'CA') {
+    prp_obs_from_st <- st_CA_prp
+  }else if (st_name == 'CT') {
+    prp_obs_from_st <- st_CT_prp
+  }
+  if (DEBUG){
+    print(paste("PRP OBS from ", st_name, "=", "prp_obs_from_st: ", prp_obs_from_st))
+    print(paste("prp_mean_area: ", prp_mean_area))
+  }
   
-  # ----  pu pv px pz py
-  # pu: i-2,j-1
-  r_pu <- rainnc[i-2,j-2,t+1]+rainc[i-2,j-2,t+1]-(rainnc[i-2,j-2,t]+rainc[i-2,j-2,t])
-  # pv: i-1,j-1
-  r_pv <- rainnc[i-1,j-2,t+1]+rainc[i-1,j-2,t+1]-(rainnc[i-1,j-2,t]+rainc[i-1,j-2,t])
-  # px: i,j-1
-  r_px <- rainnc[i,j-2,t+1]+rainc[i,j-2,t+1]-(rainnc[i,j-2,t]+rainc[i,j-2,t])
-  # pz: i+1,j-1
-  r_pz <- rainnc[i+1,j-2,t+1]+rainc[i+1,j-2,t+1]-(rainnc[i+1,j-2,t]+rainc[i+1,j-2,t])
-  # py: i+2,j-1
-  r_py <- rainnc[i+2,j-2,t+1]+rainc[i+2,j-2,t+1]-(rainnc[i+2,j-2,t]+rainc[i+2,j-2,t])
+  #######################################################################
+  # RMSE is optimal for normal (Gaussian) errors,
+  #    and MAE is optimal for Laplacian errors. 
+  # ===========   Statisticas -> Mean Absolute Error (F-O)  =============
+
+  # ======= MAE (Mean Absolute Error): (F)orecast (mean Area)   ============
+  # Matrix for MAE (Mean Absolute Error)
+  # The index of the array (1-24) will be associated with forecast HOUR
+  
+  MAE_for_prp_area <- matrix(1:24, nrow = 24, ncol = 1)
+  colnames(MAE_for_prp_area) <- c("mae_area_time")
+  
+  MAE_for_station = 0
+  for (t in t_start:(forecast_time-1)){
+    MAE_for_prp_area[t] <- abs(prp_mean_area[t] - prp_obs_from_st[t])
+    MAE_for_station = MAE_for_prp_area[t] + MAE_for_station
+  }
+  MAE_for_station = MAE_for_station / forecast_time
+  if (DEBUG){
+    print(paste("Station:", st_name, "MAE_for_prp_area: ", MAE_for_prp_area))
+  }
+  
+  
+  
+  # ======= Difference between Forecast and Observed  ============
+ 
+  DIF_for_prp_area <- matrix(1:24, nrow = 24, ncol = 1)
+  colnames(DIF_for_prp_area) <- c("dif_area_time")
+  
+  for (t in t_start:(forecast_time-1)){
+    DIF_for_prp_area[t] <- (prp_mean_area[t] - prp_obs_from_st[t])
+  }
+  if (DEBUG){
+    print(paste("DIF_for_prp_area_time: ", DIF_for_prp_area))
+  }
 
   
-  result <- c(r_pa, r_pb, r_pc, r_pd, r_pe, r_pf, r_pg, r_ph, r_pi, r_pj, r_pk, r_pl, r_pm, r_pn, r_po, r_pp, r_pq, r_pr, r_ps, r_pt, r_pu, r_pv, r_px, r_pz, r_py)
-  # Remove missing values from calculus: na.rm=TRUE. If there were a missing value,
-  #    then the function will end with a error.
-  prp_avg_area <- mean(result, na.rm=TRUE)
-  prp_mean_area[t] <- c(prp_avg_area)
+  # For PRP, the ratio is calculated as ME = F/O  (\cite{stull2017practical}
+  # for (t in t_start:(forecast_time-1)){
+  #  DIF_for_prp_area_div[t] <- (prp_mean_area[t] / prp_obs_from_st[t])
+  #}
+  #if (DEBUG){
+  #  print(paste("Station:", st_name, "DIF_for_prp_area_div: ", DIF_for_prp_area_div))
+  #}                                                                              
 
-#  if (DEBUG){
-#    print(paste("Hour:", t, "  ", "PRP area average:", prp_avg_area))
-#    print(result)
-#  }
+  
+  # ======= Absolute Error between Forecast and Observed  ============
+  
+  AE_for_prp_area <- matrix(1:24, nrow = 24, ncol = 1)
+  colnames(AE_for_prp_area) <- c("ae_area_time")
+  
+  for (t in t_start:(forecast_time-1)){
+    AE_for_prp_area[t] <- abs(prp_mean_area[t] - prp_obs_from_st[t])
+  }
+  AE_from_metrics <- ae(prp_obs_from_st, prp_mean_area)
+  if (DEBUG){
+    print(paste("AE_for_prp_area_time: ", AE_for_prp_area))
+    print(paste("AE_from_metrics: ", AE_from_metrics))
+  }
+
+
+  
+  # ======= RMSE: (F)orecast (mean Area and Time)  ============
+  # Root mean squared error (RMSE)
+  
+  RMSE_for_prp_area <- matrix(1:24, nrow = 24, ncol = 1)
+  colnames(RMSE_for_prp_area) <- c("rmse_area_time")
+  
+  for (t in t_start:(forecast_time-1)){
+    RMSE_for_prp_area[t] <- sqrt(mean((prp_mean_area[t] - prp_obs_from_st[t])^2))
+  }
+  if (DEBUG){
+    print(paste("Station:", st_name, "RMSE_for_prp_area: ", RMSE_for_prp_area))
+  }
+  # RMSE
+  # sqrt(mean((data$actual - data$predicted)^2))
+  
+
+  
+  ##  Processing statistics PER station
+  # ==== Statistics from Package Metrics: generate unique values
+  # https://cran.r-project.org/web/packages/Metrics/Metrics.pdf
+  AE_for_station <- ae(prp_obs_from_st, prp_mean_area)
+  BIAS_for_station <- bias(prp_obs_from_st, prp_mean_area)
+  MAE_for_station <- mae(prp_obs_from_st, prp_mean_area)
+  RMSE_for_station <- rmse(prp_obs_from_st, prp_mean_area)
+  
+  print(paste("Station:", st_name, "  AE:", AE_for_station, "  BIAS:", BIAS_for_station, "   MAE:", MAE_for_station, " RMSE:", RMSE_for_station))
+  
+  # ===========    Writing SUMMARY STATS PER STATION to CSV file   ============
+  data2 <- data.frame(BIAS_for_station, MAE_for_station, RMSE_for_station)
+  csvfilename <- paste(args[2], st_name, "-summary-stats.csv")
+  write.table(data2, csvfilename, row.names=FALSE, sep=",")
+  print(paste("Writing -> write.csv2(data2,file=csvfilename, row.names = TRUE)"))
+
+  # ====     Writing MEAN data PER TIME and PER STATION to CSV file    =======
+  
+  #data <- data.frame(timestamps[2:25], prp_obs_from_st, prp_mean_area, DIF_for_prp_area, AE_for_prp_area, MAE_for_prp_area, RMSE_for_prp_area)
+  data <- data.frame(timestamps[2:25], prp_obs_from_st, prp_mean_area, DIF_for_prp_area, AE_for_prp_area)
+  csvfilename <- paste(args[2], st_name, "-prp-area-time-and-stats.csv")
+  write.table(data, csvfilename, row.names=TRUE, sep=",")
+  print(paste("Writing -> write.csv2(data,file=csvfilename, row.names = TRUE)"))
+
+  
+  if (st_name == "CA"){
+    DIF_for_st_CH <- DIF_for_prp_area
+  } else if (st_name == "XA"){
+    DIF_for_st_XA <- DIF_for_prp_area
+  } else if (st_name == "JO"){
+    DIF_for_st_JO <- DIF_for_prp_area
+  } else if (st_name == "CN"){
+    DIF_for_st_CN <- DIF_for_prp_area
+  } else if (st_name == "CA"){
+    DIF_for_st_CA <- DIF_for_prp_area
+  } else if (st_name == "CA"){
+    DIF_for_st_CT <- DIF_for_prp_area
+  }
+
+  if (st_name == 'CH') {
+    prp_obs_from_st <- as.vector(st_CH_prp)
+  } else if (st_name == 'XA') {
+    prp_obs_from_st <- st_XA_prp
+  } else if (st_name == 'JO') {
+    prp_obs_from_st <- st_JO_prp
+  } else if (st_name == 'CN') {
+    prp_obs_from_st <- st_CN_prp
+  }else if (st_name == 'CA') {
+    prp_obs_from_st <- st_CA_prp
+  }else if (st_name == 'CT') {
+    prp_obs_from_st <- st_CT_prp
+  }
+  if (DEBUG){
+    print(paste("--- Final Processing Station:", st_name, " with s: ", s))
+  }  
+  
 }
 
 
-# ==================    Mean AREA and TIME   ============================
-
-t <- 1
-# For t=1 (mean(t=1h, t=2h))
-mean_data <- c(prp_mean_area[t],prp_mean_area[t+1])
-prp_avg_area_time <- mean(mean_data)
-prp_mean_area_time[t] <- c(prp_avg_area_time)
 
 
-for (t in 2:forecast_time-2){
-  mean_data <- c(prp_mean_area[t-1], prp_mean_area[t],prp_mean_area[t+1])
-  prp_avg_area_time <- mean(mean_data)
-  prp_mean_area_time[t] <- c(prp_avg_area_time)
-}
 
-t <- forecast_time-1
-mean_data <- c(prp_mean_area[t-1],prp_mean_area[t])
-prp_avg_area_time <- mean(mean_data)
-prp_mean_area_time[t] <- c(prp_avg_area_time)
+# ------------------------------------
+#  FINAL of stations processing
 
 #######################################################################
-# ===========   Statisticas -> Mean Absolute Error (F-O)  =============
 
-# Matrix for MAE statisticas
-# The index of the array (1-24) will be associated with forecast HOUR
+# TODO TODO for error correction
+# The config for pdf generate a PNG with error. Without config (as below),
+#   the R plots all the images in same PDF page (filename: R)
+#filename <- paste(args[2], "ALL", "-dif-PREV-OBS.png")
+#png(file=filename)
+#pdf.options(onefile=TRUE, paper="a4", pagecentre=TRUE)
+#pdf(file=filename, paper="a4r", onefile=TRUE)
+#pdf(file=filename)
+#title_for_plot <- paste("Diferença entre Previsto-Obs\n para ", st_name)
+par(mfrow=c(3,2))
+plot(hours, DIF_for_st_CH, type='b', ylim=c(-25,25), main="Dif Prev-Obs para Chapecó", xlab="Horas Prev", ylab="Dif em mm")
+plot(hours, DIF_for_st_XA, type='b', ylim=c(-25,25), main="Dif Prev-Obs para Xanxerê", xlab="Horas Prev", ylab="Dif em mm") 
+plot(hours, DIF_for_st_JO, type='b', ylim=c(-25,25), main="Dif Prev-Obs para Joaçaba", xlab="Horas Prev", ylab="Dif em mm") 
+plot(hours, DIF_for_st_CN, type='b', ylim=c(-25,25), main="Dif Prev-Obs para Campos Novos", xlab="Horas Prev", ylab="Dif em mm") 
+plot(hours, DIF_for_st_CA, type='b', ylim=c(-25,25), main="Dif Prev-Obs para Caçador", xlab="Horas Prev", ylab="Dif em mm")
+plot(hours, DIF_for_st_CT, type='b', ylim=c(-25,25), main="Dif Prev-Obs para Curitibanos", xlab="Horas Prev", ylab="Dif em mm") 
 
-MAE_for_prp_area_attime <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_attime) <- c("mae_area_attime")
-
-# Forecast: -2h -> atbw:  forecast time 2hours in past
-MAE_for_prp_area_atbw <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_atbw) <- c("mae_area_atbw")
-
-# Forecast: +2h -> atfw:  forecast time 2hours in future
-MAE_for_prp_area_atfw <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_atfw) <- c("mae_area_atfw")
-
-MAE_for_prp_area_time <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_time) <- c("mae_area_time")
-
-if (DEBUG){
-  print(paste("prp_obs_from_st: ", prp_obs_from_st))
-  print(paste("prp_mean_area: ", prp_mean_area))
-}
-
-
-# ======= MAE (Mean Absolute Error): (F)orecast (mean Area) from +0h - (O)bs    ============
-for (t in t_start:(forecast_time-1)){
-  MAE_for_prp_area_attime[t] <- sqrt((prp_mean_area[t]-prp_obs_from_st[t])^2)
-}
-if (DEBUG){
-  print(paste("MAE_for_prp_area_attime: ", MAE_for_prp_area_attime))
-}
-
-# ======= MAE (Mean Absolute Error): (F)orecast (mean Area) from -2h - (O)bs    ============
-MAE_for_prp_area_atbw[1] <- NA
-MAE_for_prp_area_atbw[2] <- NA
-for (t in 3:(forecast_time-1)){
-  print(paste("t:", t))
-  MAE_for_prp_area_atbw[t] <- sqrt((prp_mean_area[t-2]-prp_obs_from_st[t])^2)
-}
-if (DEBUG){
-  print(paste("MAE_for_prp_area_atbw: ", MAE_for_prp_area_atbw))
-}
-
-# ======= MAE (Mean Absolute Error): (F)orecast (mean Area) from +2h - (O)bs    ============
-for (t in t_start:(forecast_time-3)){
-  MAE_for_prp_area_atfw[t] <- sqrt((prp_mean_area[t+2]-prp_obs_from_st[t])^2)
-}
-MAE_for_prp_area_atfw[23] <- NA
-MAE_for_prp_area_atfw[24] <- NA
-if (DEBUG){
-  print(paste("MAE_for_prp_area_atfw: ", MAE_for_prp_area_atfw))
-}
-
-# ======= MAE (Mean Absolute Error): (F)orecast (mean Area and Time)  - (O)bs    ============
-for (t in t_start:(forecast_time-1)){
-  MAE_for_prp_area_time[t] <- sqrt((prp_mean_area[t+2]-prp_obs_from_st[t])^2)
-}
-if (DEBUG){
-  print(paste("MAE_for_prp_area_time: ", MAE_for_prp_area_time))
-}
-
-#######################################################################
-# ===========   Statisticas -> Absolute Error (F-O)  =============
-
-# Matrix for MAE statisticas
-# The index of the array (1-24) will be associated with forecast HOUR
-
-MAE_for_prp_area_attime <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_attime) <- c("mae_area_attime")
-
-# Forecast: -2h -> atbw:  forecast time 2hours in past
-MAE_for_prp_area_atbw <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_atbw) <- c("mae_area_atbw")
-
-# Forecast: +2h -> atfw:  forecast time 2hours in future
-MAE_for_prp_area_atfw <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_atfw) <- c("mae_area_atfw")
-
-MAE_for_prp_area_time <- matrix(1:24, nrow = 24, ncol = 1)
-colnames(MAE_for_prp_area_time) <- c("mae_area_time")
-
-if (DEBUG){
-  print(paste("prp_obs_from_st: ", prp_obs_from_st))
-  print(paste("prp_mean_area: ", prp_mean_area))
-}
+dev.off()
 
 
 #######################################################################
-# ==================    Writing to CSV file   ========================
 
-data <- data.frame(prp_mean_area, MAE_for_prp_area_attime, MAE_for_prp_area_atbw, MAE_for_prp_area_atfw, prp_mean_area_time)
-csvfilename <- paste(args[2], "-prp-area-hour-MAE.csv")
-# write.csv2(data, file=csvfilename, row.names = TRUE, sep=",")
+print(paste("st_ALL_prp: ", class(st_ALL_prp), length(st_ALL_prp)))
+print(paste("prp_mean_for_all_points: ", class(prp_mean_for_all_points), length(prp_mean_for_all_points)))
+rmse_for_all_st <- rmse(st_ALL_prp, prp_mean_for_all_points)
+print(paste("RMSE:", rmse_for_all_st))
+
+
+bias_for_all_st <- bias(st_ALL_prp, prp_mean_for_all_points)
+print(paste("BIAS:", bias_for_all_st))
+
+mae_for_all_st <- mae(st_ALL_prp, prp_mean_for_all_points)
+print(paste("MAE:", mae_for_all_st))
+
+csvfilename <- paste(args[2],"summary-stats.csv",sep="")
+df1 <- data.frame(mae_for_all_st)
+colnames(df1) <- c("MAE")
+df2 <- data.frame(bias_for_all_st)
+colnames(df2) <- c("BIAS")
+df3 <- data.frame(rmse_for_all_st)
+colnames(df1) <- c("RMSE")
+
+data <- data.frame(mae_for_all_st, bias_for_all_st, rmse_for_all_st)
+colnames(data) <- c("MAE", "BIAS", "RMSE")
+#write.csv2(rbind(df1,df2,df3), file=filename_output, row.names = FALSE)
 write.table(data, csvfilename, row.names=TRUE, sep=",")
-print(paste("Writing -> write.csv2(data,file=csvfilename, row.names = TRUE) - area-time-MAE"))
 
-
-
-
-
-
-summary_BIAS_for_prp_area_time <- summary(MAE_for_prp_area_time, na.rm=TRUE)
-summary_BIAS_for_prp_area_attime <- summary(MAE_for_prp_area_attime, na.rm=TRUE)
-summary_BIAS_for_prp_area_atbw <- summary(MAE_for_prp_area_atbw, na.rm=TRUE)
-summary_BIAS_for_prp_area_atfw <- summary(MAE_for_prp_area_atfw, na.rm=TRUE)
-
-if (DEBUG){
-  print(paste(summary_BIAS_for_prp_area_time))
-  print(paste(summary_BIAS_for_prp_area_attime))
-  print(paste(summary_BIAS_for_prp_area_atbw))
-  print(paste(summary_BIAS_for_prp_area_atfw))
-}
 
 # write.table(df1, "filename.csv", col.names=TRUE, sep=",")
 # write.table(df2, "filename.csv", col.names=FALSE, sep=",", append=TRUE)
@@ -488,11 +623,10 @@ if (DEBUG){
 # write.csv(rbind(df1, d32, df3), "filename.csv")
 
 
-filename_output <- paste(args[2],"-summary-BIAS.csv",sep="")
 
-#data <- data.frame(summary_MAE_for_prp_area_time)
+#data <- data.frame(summary_MAE_for_prp_area)
 #write.csv2(data,file=filename_output, row.names = TRUE)
-#data <- data.frame(summary_MAE_for_prp_area_attime)
+#data <- data.frame(summary_MAE_for_prp_area)
 #write.csv2(data,file=filename_output, row.names = TRUE)
 #data <- data.frame(summary_MAE_for_prp_area_atbw)
 #write.csv2(data,file=filename_output, row.names = TRUE)
@@ -500,11 +634,7 @@ filename_output <- paste(args[2],"-summary-BIAS.csv",sep="")
 #write.csv2(data,file=filename_output, row.names = TRUE)
 
 
-df1 <- data.frame(summary_BIAS_for_prp_area_time)
-df2 <- data.frame(summary_BIAS_for_prp_area_attime)
-df3 <- data.frame(summary_BIAS_for_prp_area_atbw)
-df4 <- data.frame(summary_BIAS_for_prp_area_atfw)
-write.csv2(rbind(df1, df2, df3, df4), file=filename_output, row.names = FALSE)
+
 
 
 #sink(filename_output)
@@ -549,19 +679,32 @@ write.csv2(rbind(df1, df2, df3, df4), file=filename_output, row.names = FALSE)
 #data$new_col <- NULL
 
 
-# Compare OBS data time with WRF forecast at:
-#     atfw:  forecast time 2hours in future
+#prp_obs_from_st <- switch(station,
+#                 "CH"=st_CH_prp, 
+#                 "XA"=st_XA_prp,
+#                 "JO"=st_JO_prp,
+#                 "CN"=st_CN_prp,
+#                 "CA"=st_CA_prp,
+#                 "CT"=st_CT_prp
+#)
+
+# result = switch(   
+#   val3,   
+#   "a"= cat("Addition =", val1 + val2),   
+#   "d"= cat("Subtraction =", val1 - val2),   
+#   "r"= cat("Division = ", val1 / val2),   
+#   "s"= cat("Multiplication =", val1 * val2), 
+#   "m"= cat("Modulus =", val1 %% val2), 
+#   "p"= cat("Power =", val1 ^ val2) 
+# )   
+# print(result)
 
 
 # By default, data.frame() function converts character vectors into factors.
 # To suppress this behavior, we can pass the argument stringsAsFactors=FALSE.
 
 
-
-# Compare OBS data time with WRF forecast at:
-#     atbw:  forecast time 2hours in past
-
-
+# Metrics package for statistics: install.packages('Metrics")
 
 
 # ===== Some extra information
@@ -572,85 +715,3 @@ write.csv2(rbind(df1, df2, df3, df4), file=filename_output, row.names = FALSE)
 # stations=("CH" "XA" "JO" "CN" "CT" "CA")
 # st_coord_i=(155 167 209 226 257 238)
 # st_coord_j=(236 243 231 218 227 250)
-# 
-# hour
-# prp_mean_area_CH
-# prp_mean_area_XA
-# 
-# prp_mean_area_JO
-# prp_mean_area_CN
-# 
-# prp_mean_area_CA
-# prp_mean_area_CT
-# 
-# prp_mean_area_time_CH
-# prp_mean_area_time_XA
-# 
-# prp_mean_area_time_JO
-# prp_mean_area_time_CN
-# 
-# prp_mean_area_time_CA
-# prp_mean_area_time_CT
-# 
-# # F: forecast value  O: observed value
-# # MAE (Mean Absolute Error): radix(F-O)
-# 
-# 
-# MAE_prp_mean_area_time_CH
-# MAE_prp_mean_area_time_XA
-# 
-# MAE_prp_mean_area_time_JO
-# MAE_prp_mean_area_time_CN
-# 
-# MAE_prp_mean_area_time_CA
-# MAE_prp_mean_area_time_CT
-# 
-# 
-# # Forecast values from 2 hours ahead OBS
-# #   attime: same time stamp;
-# #   atfw:  forecast time 2hours in future
-# #   atbw:  forecast time 2hours in past
-# prp_mean_area_F2_CH
-# prp_mean_area_F2_XA
-# 
-# prp_mean_area_F2_JO
-# prp_mean_area_F2_CN
-# 
-# prp_mean_area_F2_CA
-# prp_mean_area_F2_CT
-# 
-# # MAE (Mean Absolute Error): radix(F-O)
-# MAE_prp_mean_area_F2_CH
-# MAE_prp_mean_area_F2_XA
-# 
-# MAE_prp_mean_area_F2_JO
-# MAE_prp_mean_area_F2_CN
-# 
-# MAE_prp_mean_area_F2_CA
-# MAE_prp_mean_area_F2_CT
-# 
-# 
-# ##  Forecast values from 2 hours before OBS
-# #   attime: same time stamp;
-# #   atfw:  forecast time 2hours in future
-# #   atbw:  forecast time 2hours in past
-# 
-# prp_mean_area_F_2_CH
-# prp_mean_area_F_2_XA
-# 
-# prp_mean_area_F_2_JO
-# prp_mean_area_F_2_CN
-# 
-# prp_mean_area_F_2_CA
-# prp_mean_area_F_2_CT
-# 
-# # MAE (Mean Absolute Error): radix(F-O)
-# 
-# MAE_prp_mean_area_F_2_CH
-# MAE_prp_mean_area_F_2_XA
-# 
-# MAE_prp_mean_area_F_2_JO
-# MAE_prp_mean_area_F_2_CN
-# 
-# MAE_prp_mean_area_F_2_CA
-# MAE_prp_mean_area_F_2_CT
