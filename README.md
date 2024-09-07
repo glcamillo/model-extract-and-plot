@@ -43,13 +43,14 @@ This script is written in [R language](https://www.r-project.org/) and the objec
 1. The script is configured for a **specific** grid configuration used in WRF execution. The points **i** and **j** correspond to the  coordinates of the stations pre-configured in the script.
 2. The WRF configuration domain used can be seen at these links:
 >  [https://github.com/glcamillo/model-wrf/tree/main/config-domains](https://github.com/glcamillo/model-wrf/tree/main/config-domains)
+
 >  [https://github.com/glcamillo/model-wrf/blob/main/config-domains/r_sul-RS-SC-2d/projection.jpg](https://github.com/glcamillo/model-wrf/blob/main/config-domains/r_sul-RS-SC-2d/projection.jpg)
 3. The 10 km AREA results in a 25 points around the station in the  Domain 2 of the output file from WRF (wrfout_d02_2015-07-24_00_00_00)  (domain configuration as pointed in 2.)
 
 ### How execute:
 1. Set the executable bit:
   `chmod u+x wrfout-extract-PRP-with-R-for10kmAREA-and-statistics-from-D2.R`
-2. Execute with the next parameters (all in one line)
+2. Execute with the next parameters:
   `./wrfout-extract-PRP-with-R-for10kmAREA-and-statistics-from-D2.R
         wrfout_d02_2020-08-14_00.nc
         data-prp-pbl_BOUGEAULT-8-mp_MADWRF-96
@@ -59,11 +60,11 @@ This script is written in [R language](https://www.r-project.org/) and the objec
 
 
 ### About the Arguments
-args[1]=wrfout_d02_2020-08-14_00.nc    NetCDF file from WRF output
-args[2]=data-prp-pbl_BOUGEAULT-8-mp_MADWRF-96        Name of output file (CSV data)
-args[3]=ALL            ALL for all meteorological stations (name or ALL)
-args[4]=24             Time of forecast (24,48, or 72 hours)
-args[5]=POINT|AREA     This script will extract only AREA for now
+- args[1]=wrfout_d02_2020-08-14_00.nc    NetCDF file from WRF output
+- args[2]=data-prp-pbl_BOUGEAULT-8-mp_MADWRF-96        Name of output file (CSV data)
+- args[3]=ALL            ALL for all meteorological stations (name or ALL)
+- args[4]=24             Time of forecast (24,48, or 72 hours)
+- args[5]=POINT|AREA     This script will extract only AREA for now
 
 
 ## About the stations:
