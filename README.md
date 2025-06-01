@@ -3,6 +3,7 @@ Scripts in R, GrADS, and Python for extraction and plot meteorological data from
 
 A brief description will be provided for two scripts that manipulate NetCDF files (WRF output data forecast). They are in a state of **specific problem solving** and do not contain clean code and comments/help for now.
 
+The National Institute of Meteorology (INMET) is the Brazilian representative at the World Meteorological Organization (WMO). INMET collects surface meteorological data from automatic stations that are available through the INMET Meteorological Database (BDMET) service at [https://bdmep.inmet.gov.br](https://bdmep.inmet.gov.br). The data are in CSV format, which can be processed by shell scripts. There are some Bash shell scripts (called bdmet-v?-*.sh) that process file names and data.
 
 ## Information about the file `wrfout-extract-PRP-with-R-casos-Eliseo-for-24-48-72h.R`
 
@@ -117,4 +118,19 @@ Statistics from Package `Metrics`: generate unique values
 - **ae** (absolute error): output a vector with absolute differences
 - **mae**, **bias**, **rmse**: summarization stats
 
-Last revision: 20240907
+
+# Scripts for BDMET data (CSV) treatment
+
+The scripts are named bdmet-v?-*.sh which help to put in a sequence of desired operations.
+
+1. (v1) `bdmet-v1-filename-extrai-nome-estacao.sh DIR` Changes filenames and removes some characters (space, '(', and ')'). Results are written to ./v1
+2. (v2) `bdmet-v2-dados-remove-cabecalho.sh DIR` Removes the header information from the files. Results are written to ./v2
+3. (v3) `bdmet-v3-dados-extrai-campos.sh DIR` Extracts fields from CSV and copies to ./v3
+
+4. (v4) `bdmet-v4-dados-remove-linhas-nulas.sh DIR` Removes lines with ;; (without data) and writes to ./v4
+
+5. (v5) `bdmet-v5-dados-altera-ponto-decimal.sh DIR` Changes the decimal comma (2,3) to decimal point (2.3) and writes the results to ./v5
+
+
+
+Last revision: 20250601
